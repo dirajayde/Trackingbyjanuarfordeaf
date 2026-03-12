@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> Ultimate Gesture Tracking</title>
+    <style>
+        body { margin: 0; padding: 0; background: #121212; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        .container { position: relative; width: 100%; height: 100%; }
+        #input_video { display: none; }
+        #output_canvas { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; z-index: 10; background: rgba(0,0,0,0.85); padding: 25px; border-radius: 15px; text-align: center; border: 1px solid #333; }
+        .status { position: absolute; top: 15px; left: 15px; color: #ff007a; font-size: 14px; z-index: 10; background: rgba(0,0,0,0.7); padding: 12px; border-radius: 8px; }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div class="loading" id="loadingText">
+        <div style="font-size: 24px; margin-bottom: 10px;">sabar yah </div>
+        <small style="color: #ff007a;">Lagi sinkronisasi deteksi hati...</small>
+    </div>
+
+    <div class="status" id="statusText">📊 Status: Inisialisasi...</div>
+
+    <div class="container">
+        <video id="input_video" playsinline></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loadingText = document.getElementById('loadingText');
+        const statusText = document.getElementById('statusText');
+
+        let latestResults = { face: null, hands: null };
+
+        // Hitung jarak antara dua titik
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        function isUp(landmarks, tip, pip) {
+            return landmarks[tip].y < landmarks[pip].y;
+        }
+
+        function drawEverything() {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+            // 1. Face Mesh
+            if (latestResults.face && latestResults.face.multiFaceLandmarks) {
+                for (const landmarks of latestResults.face.multiFaceLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#ffffff15', lineWidth: 0.5});
+                }
+            }
+
+            // 2. Deteksi Gestur Tangan
+            if (latestResults.hands && latestResults.hands.multiHandLandmarks) {
+                const hands = latestResults.hands.multiHandLandmarks;
+                
+                // Deteksi Two-Handed Heart (🫶)
+                if (hands.length === 2) {
+                    const h1 = hands[0];
+                    const h2 = hands[1];
+                    const distIndex = getDistance(h1[8], h2[8]); // Jarak antar telunjuk
+                    const distThumb = getDistance(h1[4], h2[4]); // Jarak antar jempol
+
+                    if (distIndex < 0.15 && distThumb < 0.15) {
+                        canvasCtx.font = "bold 80px Arial";
+                        canvasCtx.fillStyle = "#ff007a";
+                        canvasCtx.textAlign = "center";
+                        canvasCtx.fillText("LOVE 🫶", canvasElement.width / 2, canvasElement.height / 2);
+                    }
+                }
+
+                hands.forEach((landmarks) => {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#ff007a', lineWidth: 3});
+                    
+                    const thumb = isUp(landmarks, 4, 3);
+                    const index = isUp(landmarks, 8, 6);
+                    const middle = isUp(landmarks, 12, 10);
+                    const ring = isUp(landmarks, 16, 14);
+                    const pinky = isUp(landmarks, 20, 18);
+
+                    let gesture = "";
+                    let color = "#fff";
+
+                    // Logika Gestur Baru
+                    // 🫰 Korean Heart: Jempol dan telunjuk bersilangan/dekat, sisanya menekuk
+                    const distKorean = getDistance(landmarks[4], landmarks[8]);
+                    
+                    if (distKorean < 0.05 && !middle && !ring && !pinky) {
+                        gesture = "SARANGHAEYO 🫰"; color = "#ff4d94";
+                    } else if (thumb && index && middle && ring && pinky) {
+                        gesture = "HALO! 🖐️"; color = "#00ffcc";
+                    } else if (index && middle && !ring && !pinky && !thumb) {
+                        gesture = "PEACE ✌️"; color = "#ff00ff";
+                    } else if (index && pinky && !middle && !ring && !thumb) {
+                        gesture = "ROCK ON! 🤘"; color = "#ffcc00";
+                    } else if (thumb && !index && !middle && !ring && !pinky) {
+                        gesture = "GTU 👍"; color = "#00ff00";
+                    } else if (middle && !index && !ring && !pinky && !thumb) {
+                        gesture = "WARNING! 🖕"; color = "#ff0000";
+                    }
+
+                    if (gesture) {
+                        canvasCtx.font = "bold 50px Arial";
+                        canvasCtx.fillStyle = color;
+                        const x = landmarks[0].x * canvasElement.width;
+                        const y = landmarks[0].y * canvasElement.height;
+                        canvasCtx.fillText(gesture, x, y - 60);
+                    }
+                });
+            }
+
+            if(loadingText.style.display !== 'none') loadingText.style.display = 'none';
+            statusText.innerHTML = `📊 Wajah & Tangan Terdeteksi | Gestur Cinta Aktif`;
+            canvasCtx.restore();
+        }
+
+        const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5 });
+        faceMesh.onResults(results => { latestResults.face = results; });
+
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 2, minDetectionConfidence: 0.75 });
+        hands.onResults(results => { latestResults.hands = results; });
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({image: videoElement});
+                await hands.send({image: videoElement});
+                drawEverything();
+            },
+            width: 1280, height: 720
+        });
+        camera.start();
+    </script>
+</body>
+</html>
